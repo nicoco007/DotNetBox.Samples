@@ -158,9 +158,9 @@ namespace DotNetBox.Samples
         private void downloadButton_Click(object sender, EventArgs e)
         {
 
-            Metadata item = (Metadata)treeView.SelectedNode.Tag;
+            Metadata item;
 
-            if (item.IsFile)
+            if (treeView.SelectedNode != null && (item = treeView.SelectedNode.Tag as Metadata).IsFile)
             {
 
                 SaveFileDialog sfd = new SaveFileDialog();
@@ -179,7 +179,7 @@ namespace DotNetBox.Samples
             else
             {
 
-                MessageBox.Show("You can only download files.");
+                MessageBox.Show("Please select a file to download.");
 
             }
 
@@ -232,9 +232,14 @@ namespace DotNetBox.Samples
 
         private void treeView_AfterSelect(object sender, TreeViewEventArgs e)
         {
-            
-            previewButton.Enabled = Regex.IsMatch(((Metadata)e.Node.Tag).Name, @"^.*\.(doc|docx|docm|ppt|pps|ppsx|ppsm|pptx|pptm|xls|xlsx|xlsm|rtf)$");
-            thumbnailButton.Enabled = Regex.IsMatch(((Metadata)e.Node.Tag).Name, @"^.*\.(jpg|jpeg|png|tiff|tif|gif|bmp)$");
+
+            Metadata item = (Metadata)e.Node.Tag;
+
+            downloadButton.Enabled = item.IsFile;
+            deleteButton.Enabled = item.IsFile || item.IsFolder;
+            copyButton.Enabled = item.IsFile || item.IsFolder;
+            previewButton.Enabled = Regex.IsMatch(item.Name, @"^.*\.(doc|docx|docm|ppt|pps|ppsx|ppsm|pptx|pptm|xls|xlsx|xlsm|rtf)$");
+            thumbnailButton.Enabled = Regex.IsMatch(item.Name, @"^.*\.(jpg|jpeg|png|tiff|tif|gif|bmp)$");
 
         }
         
@@ -302,6 +307,33 @@ namespace DotNetBox.Samples
         {
 
             MessageBox.Show("Done!");
+
+        }
+
+        private async void button3_Click(object sender, EventArgs e)
+        {
+
+            Metadata item;
+
+            if (treeView.SelectedNode != null && (item = treeView.SelectedNode.Tag as Metadata).IsFile | item.IsFolder)
+            {
+
+                SelectFolderWindow sfw = new SelectFolderWindow();
+
+                if (sfw.ShowDialog())
+                {
+
+                    await Client.Files.Copy(item.Path, sfw.FolderPath + "/" + item.Name);
+    
+                }
+
+            }
+            else
+            {
+
+                MessageBox.Show("Please select a file or folder to copy.");
+
+            }
 
         }
 

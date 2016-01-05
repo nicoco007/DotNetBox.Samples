@@ -23,17 +23,6 @@ namespace DotNetBox.Samples
 
         }
 
-        private async void SelectFolderWindow_Load(object sender, EventArgs e)
-        {
-
-            TreeNode node = new TreeNode("Root");
-
-            node.Nodes.AddRange(await GetNodes(""));
-
-            treeView.Nodes.Add(node);
-
-        }
-
         private async Task<TreeNode[]> GetNodes(string path)
         {
 
@@ -107,6 +96,23 @@ namespace DotNetBox.Samples
         {
 
             textBox.Text = treeView.SelectedNode.Tag != null ? (treeView.SelectedNode.Tag as Metadata).Path : "";
+
+        }
+
+        private async void SelectFolderWindow_Shown(object sender, EventArgs e)
+        {
+
+            pictureBox1.Visible = true;
+
+            TreeNode node = new TreeNode("Root");
+
+            node.Nodes.AddRange(await GetNodes(""));
+
+            treeView.Nodes.Add(node);
+
+            node.Expand();
+
+            pictureBox1.Visible = false;
 
         }
 
