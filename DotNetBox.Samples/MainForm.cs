@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -11,6 +12,9 @@ namespace DotNetBox.Samples
 
     public partial class MainForm : Form
     {
+
+        private const string appId = "ziu5zipgww4tnww";
+        private const string appSecret = "1z77a0ptmee7ez3";
 
         public static DropboxClient Client;
 
@@ -31,9 +35,8 @@ namespace DotNetBox.Samples
 
                 if (await Client.CheckConnection())
                 {
-
-                    toolStripProgressBar.Style = ProgressBarStyle.Marquee;
-                    Enabled = false;
+                    
+                    EnableUI(false);
 
                     // get current account
                     FullAccount currentAccount = await Client.Users.GetCurrentAccount();
@@ -43,14 +46,12 @@ namespace DotNetBox.Samples
 
                     // get space usage
                     SpaceUsage usage = await Client.Users.GetSpaceUsage();
-                    spaceUsageProgressBar.Value = (int)((float)usage.Used / (float)usage.Allocation.Allocated * 100f);
                     spaceUsageLabel.Text = string.Format("{0:0.00}% used ({1:n} of {2:n} GiB)", (float)usage.Used / (float)usage.Allocation.Allocated * 100f, usage.Used / 1073741824f, usage.Allocation.Allocated / 1073741824f);
 
                     // refresh tree view
                     await RefreshTreeView();
-
-                    toolStripProgressBar.Style = ProgressBarStyle.Blocks;
-                    Enabled = true;
+                    
+                    EnableUI(true);
 
                 }
                 else
@@ -64,31 +65,46 @@ namespace DotNetBox.Samples
             else
             {
 
-                Client = new DropboxClient("ziu5zipgww4tnww", "1z77a0ptmee7ez3");
+                Client = new DropboxClient(appId, appSecret);
 
             }
 
             Client.Files.DownloadFileProgressChanged += Files_DownloadFileProgressChanged;
-            Client.Files.DownloadFileCompleted += Files_DownloadFileCompleted;
             Client.Files.UploadFileProgressChanged += Files_UploadFileProgressChanged;
-            Client.Files.UploadFileCompleted += Files_UploadFileCompleted;
 
         }
 
         private async void connectToDropboxToolStripMenuItem_Click(object sender, EventArgs e)
         {
 
+            // create new Dropbox Client
+            Client = new DropboxClient(appId, appSecret);
+
             // open authorization webpage
             Process.Start(Client.GetAuthorizeUrl(ResponseType.Code));
 
             // show input dialog
             string code = new ConnectWindow().ShowDialog();
+            
+            EnableUI(false);
 
-            toolStripProgressBar.Style = ProgressBarStyle.Marquee;
-            Enabled = false;
+            AuthorizeResponse response = null;
 
             // authorize entered code
-            AuthorizeResponse response = await Client.AuthorizeCode(code);
+            try
+            {
+
+                response = await Client.AuthorizeCode(code);
+
+            }
+            catch(InvalidGrantException ex)
+            {
+
+                MessageBox.Show("Invalid code. Please try again.", "Invalid code", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                return;
+
+            }
 
             // save token
             Properties.Settings.Default.AccessToken = response.AccessToken;
@@ -102,18 +118,21 @@ namespace DotNetBox.Samples
 
             // refresh tree view
             await RefreshTreeView();
-
-            toolStripProgressBar.Style = ProgressBarStyle.Blocks;
-            Enabled = true;
+            
+            EnableUI(true);
 
         }
 
         private async Task RefreshTreeView()
         {
             
+            ShowLoader(true);
+
             treeView.Nodes.Clear();
 
             treeView.Nodes.AddRange(await GetNodes(""));
+            
+            ShowLoader(false);
 
         }
 
@@ -155,7 +174,45 @@ namespace DotNetBox.Samples
 
         }
 
-        private void downloadButton_Click(object sender, EventArgs e)
+        private async void uploadButton_Click(object sender, EventArgs e)
+        {
+
+            OpenFileDialog ofd = new OpenFileDialog();
+
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+
+                SelectFolderWindow sfw = new SelectFolderWindow();
+
+                if (sfw.ShowDialog())
+                {
+
+                    try
+                    {
+
+                        await Client.Files.Upload(ofd.FileName, sfw.FolderPath + "/" + Path.GetFileName(ofd.FileName), WriteMode.Add, false, false);
+
+                    }
+                    catch(OperationCanceledException) // check if user canceled operation
+                    {
+
+                        MessageBox.Show("Operation canceled!", "Operation canceled!", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    }
+                    catch (DropboxException ex) // catch any other exception
+                    {
+
+                        MessageBox.Show(string.Format("An error of type {0} occured while trying to upload the file: {1}", ex.GetType(), ex.Message), "Error!", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                    }
+
+                }
+
+            }
+
+        }
+
+        private async void downloadButton_Click(object sender, EventArgs e)
         {
 
             Metadata item;
@@ -171,7 +228,26 @@ namespace DotNetBox.Samples
                 if (sfd.ShowDialog() == DialogResult.OK)
                 {
 
-                    Client.Files.Download(item.Path, sfd.FileName); // you can use await if you want, but you will not get cancellation/exception information
+                    try
+                    {
+
+                        await Client.Files.Download(item.Path, sfd.FileName);
+
+                    }
+                    catch (OperationCanceledException)
+                    {
+
+                        MessageBox.Show("Operation canceled!", "Operation canceled!", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    }
+                    catch (DropboxException ex) // catch any other exception
+                    {
+
+                        MessageBox.Show(string.Format("An error of type {0} occured while trying to download the file: {1}", ex.GetType(), ex.Message), "Error!", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                    }
+
+                    MessageBox.Show("Done!");
 
                 }
 
@@ -188,15 +264,17 @@ namespace DotNetBox.Samples
         private void Files_DownloadFileProgressChanged(DownloadFileProgressChangedEventArgs e)
         {
 
-            toolStripProgressBar.Value = (int)e.Progress;
+            progressBar.Value = (int)e.Progress;
 
         }
 
         private async void treeView_AfterExpand(object sender, TreeViewEventArgs e)
         {
 
-            toolStripProgressBar.Style = ProgressBarStyle.Marquee;
-            Enabled = false;
+            loadingImage.Visible = true;
+
+            EnableUI(false);
+            ShowLoader(true);
 
             Metadata item = (Metadata)e.Node.Tag;
 
@@ -209,8 +287,8 @@ namespace DotNetBox.Samples
 
             }
 
-            toolStripProgressBar.Style = ProgressBarStyle.Blocks;
-            Enabled = true;
+            ShowLoader(false);
+            EnableUI(true);
 
         }
 
@@ -268,45 +346,10 @@ namespace DotNetBox.Samples
 
         }
 
-        private void uploadButton_Click(object sender, EventArgs e)
-        {
-
-            OpenFileDialog ofd = new OpenFileDialog();
-
-            if (ofd.ShowDialog() == DialogResult.OK)
-            {
-
-                SelectFolderWindow sfw = new SelectFolderWindow();
-
-                if (sfw.ShowDialog())
-                {
-
-                    Client.Files.Upload(ofd.FileName, sfw.FolderPath + "/" + Path.GetFileName(ofd.FileName), WriteMode.Add, true, false); // you can use await if you want, but you will not get cancellation/exception information
-
-                }
-
-            }
-
-        }
-
         private void Files_UploadFileProgressChanged(UploadFileProgressChangedEventArgs e)
         {
 
-            toolStripProgressBar.Value = (int)e.Progress;
-
-        }
-
-        private void Files_DownloadFileCompleted(DownloadFileCompletedEventArgs e)
-        {
-
-            MessageBox.Show("Done!");
-
-        }
-
-        private void Files_UploadFileCompleted(UploadFileCompletedEventArgs e)
-        {
-
-            MessageBox.Show("Done!");
+            progressBar.Value = (int)e.Progress;
 
         }
 
@@ -322,9 +365,20 @@ namespace DotNetBox.Samples
 
                 if (sfw.ShowDialog())
                 {
+                    
+                    try
+                    {
 
-                    await Client.Files.Copy(item.Path, sfw.FolderPath + "/" + item.Name);
-    
+                        await Client.Files.Copy(item.Path, sfw.FolderPath + "/" + item.Name);
+
+                    }
+                    catch (DropboxException ex) // catch any other exception
+                    {
+
+                        MessageBox.Show(string.Format("An error of type {0} occured while trying to download the file: {1}", ex.GetType(), ex.Message), "Error!", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                    }
+
                 }
 
             }
@@ -334,6 +388,28 @@ namespace DotNetBox.Samples
                 MessageBox.Show("Please select a file or folder to copy.");
 
             }
+
+        }
+
+        private void EnableUI(bool enable)
+        {
+
+            treeView.Enabled = enable;
+            uploadButton.Enabled = enable;
+            downloadButton.Enabled = enable;
+            deleteButton.Enabled = enable;
+            copyButton.Enabled = enable;
+            previewButton.Enabled = enable;
+            thumbnailButton.Enabled = enable;
+            cancelButton.Enabled = enable;
+            progressBar.Style = enable ? ProgressBarStyle.Blocks : ProgressBarStyle.Marquee;
+        }
+
+        private void ShowLoader(bool show)
+        {
+            
+            treeView.BackColor = show ? SystemColors.Control : SystemColors.Window;
+            loadingImage.Visible = show;
 
         }
 
